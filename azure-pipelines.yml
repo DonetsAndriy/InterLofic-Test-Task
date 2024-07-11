@@ -1,0 +1,76 @@
+# ASP.NET
+# Build and test ASP.NET projects.
+# Add steps that publish symbols, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/apps/aspnet/build-aspnet-4
+
+trigger:
+- master
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+  testResultsDirectory: '$(Build.ArtifactStagingDirectory)\TestResults'
+
+steps:
+- task: UseDotNet@2
+  inputs:
+    packageType: 'sdk'
+    version: '6.0.x'
+    installationPath: $(Agent.ToolsDirectory)/dotnet
+
+- script: |
+    echo "{\"sdk\": {\"version\": \"6.0.x\"}}" > $(Build.SourcesDirectory)/global.json
+  displayName: 'Create global.json to lock SDK version'
+
+- task: DotNetCoreCLI@2
+  inputs:
+    command: 'restore'
+    projects: '$(solution)'
+    verbosityRestore: 'Detailed'
+
+- task: DotNetCoreCLI@2
+  inputs:
+    command: 'build'
+    projects: '$(solution)'
+    arguments: '--configuration $(buildConfiguration) --verbosity detailed'
+
+- task: DotNetCoreCLI@2
+  displayName: 'Publish Project'
+  inputs:
+    command: 'publish'
+    publishWebProjects: false
+    projects: '$(solution)'
+    arguments: '--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory) --verbosity detailed'
+
+# Add a step to list files in the source directory for debugging
+- script: |
+    echo "Listing contents of the source directory:"
+    dir "$(Build.SourcesDirectory)"
+  displayName: 'List contents of the source directory'
+
+# Add a step to list files in the publish directory for debugging
+- script: |
+    echo "Listing contents of the publish directory:"
+    dir "$(Build.ArtifactStagingDirectory)"
+  displayName: 'List contents of the publish directory'
+
+- script: |
+    echo "Running unit tests"
+    for /R $(Build.SourcesDirectory) %%f in (*.csproj) do dotnet test %%f --configuration $(buildConfiguration) --logger trx --results-directory $(testResultsDirectory) --verbosity detailed
+  displayName: 'Run unit tests'
+
+- task: PublishTestResults@2
+  inputs:
+    testResultsFormat: 'VSTest'
+    testResultsFiles: '$(testResultsDirectory)\*.trx'
+    failTaskOnFailedTests: true
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    pathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    artifactName: 'drop'
+    publishLocation: 'Container'
